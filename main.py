@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings,SettingsConfigDict
-from pydantic import model_validator,Field
+from pydantic import model_validator,Field,field_validator
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 import time
@@ -7,6 +7,8 @@ import time
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env")
     ticketType: str = Field(alias="TICKET_TYPE")
+    useStartTime: bool = Field(default=True, alias="USE_START_TIME")
+    startTime: str | None = Field(default=None, alias="START_TIME")
     yearMonth: str = Field(alias="YEAR_MONTH")
     date: str = Field(alias="DATE")
     skyCapsuleTimeNumber: int = Field(alias="SKY_CAPSULE_TIME_NUMBER")
@@ -32,6 +34,12 @@ class Settings(BaseSettings):
             if time.localtime().tm_year > self.PaymentCardExpiry_y or (time.localtime().tm_year == self.PaymentCardExpiry_y and time.localtime().tm_mon > self.PaymentCardExpiry_m):
                 raise ValueError("the card is expired.")
         return self
+
+    @field_validator("orderCountry")
+    def check_country(cls, v):
+        if not v:
+            raise ValueError("orderCountry must be filled.")
+        return v.upper()
 
 def get_required_env(name: str) -> str:
     path = Path(name)
@@ -84,7 +92,7 @@ def main_page_control(page, context, settings: Settings):
     page.fill("#rsBuyerName", settings.orderName)
     page.fill("#email", settings.orderEmail)
     page.fill("#rsBuyerPwd", settings.orderPassword)
-    page.select_option("#national", settings.orderCountry.upper())
+    page.select_option("#national", settings.orderCountry)
 
     page.locator("label[for='agreeAll']").click()
     page.locator("label[for='agree5']").click()
@@ -153,6 +161,13 @@ def main(settings: Settings):
         page = context.new_page()
         page.on("dialog", auto_accept_dialog)  # bind dialog event to auto accept function
         page.goto(ticket_url)
+
+        if settings.useStartTime and settings.startTime:
+            start_time_struct = time.strptime(settings.startTime, "%Y-%m-%d %H:%M:%S")
+            start_timestamp = time.mktime(start_time_struct)
+            while time.time() < start_timestamp:
+                print(f"Waiting for start time... {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}")
+                time.sleep(1)
 
         payment_page = main_page_control(page, context, settings)
         
